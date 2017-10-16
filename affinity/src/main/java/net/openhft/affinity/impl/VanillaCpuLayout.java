@@ -1,19 +1,18 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package net.openhft.affinity.impl;
@@ -63,7 +62,6 @@ public class VanillaCpuLayout implements CpuLayout {
             }
             throw new AssertionError(error);
         }
-
     }
 
     @NotNull
@@ -198,9 +196,8 @@ public class VanillaCpuLayout implements CpuLayout {
         if (coresPerSocket != that.coresPerSocket) return false;
         if (sockets != that.sockets) return false;
         if (threadsPerCore != that.threadsPerCore) return false;
-        if (!cpuDetails.equals(that.cpuDetails)) return false;
+        return cpuDetails.equals(that.cpuDetails);
 
-        return true;
     }
 
     @Override
@@ -243,9 +240,8 @@ public class VanillaCpuLayout implements CpuLayout {
 
             if (coreId != cpuInfo.coreId) return false;
             if (socketId != cpuInfo.socketId) return false;
-            if (threadId != cpuInfo.threadId) return false;
+            return threadId == cpuInfo.threadId;
 
-            return true;
         }
 
         @Override

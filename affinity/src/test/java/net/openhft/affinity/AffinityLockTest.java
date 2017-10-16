@@ -1,33 +1,32 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package net.openhft.affinity;
 
 import net.openhft.affinity.impl.VanillaCpuLayout;
-import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import static net.openhft.affinity.AffinityLock.acquireLock;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
 
@@ -36,6 +35,8 @@ import static org.junit.Assert.assertNotSame;
  */
 @SuppressWarnings("ALL")
 public class AffinityLockTest {
+    private static final Logger logger = LoggerFactory.getLogger(AffinityLockTest.class);
+
     @Test
     public void dumpLocksI7() throws IOException {
         LockInventory lockInventory = new LockInventory(VanillaCpuLayout.fromCpuInfo("i7.cpuinfo"));
@@ -116,27 +117,28 @@ public class AffinityLockTest {
 
     @Test
     public void assignReleaseThread() throws IOException {
-        if (AffinityLock.RESERVED_AFFINITY == 0) {
+        if (AffinityLock.RESERVED_AFFINITY.isEmpty()) {
             System.out.println("Cannot run affinity test as no threads gave been reserved.");
             System.out.println("Use isolcpus= in grub.conf or use -D" + AffinityLock.AFFINITY_RESERVED + "={hex mask}");
             return;
+
         } else if (!new File("/proc/cpuinfo").exists()) {
             System.out.println("Cannot run affinity test as this system doesn't have a /proc/cpuinfo file");
             return;
         }
         AffinityLock.cpuLayout(VanillaCpuLayout.fromCpuInfo());
 
-        assertEquals(AffinityLock.BASE_AFFINITY, AffinitySupport.getAffinity());
+        assertEquals(AffinityLock.BASE_AFFINITY, Affinity.getAffinity());
         AffinityLock al = AffinityLock.acquireLock();
-        assertEquals(1, Long.bitCount(AffinitySupport.getAffinity()));
+        assertEquals(1, Affinity.getAffinity().cardinality());
         al.release();
-        assertEquals(AffinityLock.BASE_AFFINITY, AffinitySupport.getAffinity());
+        assertEquals(AffinityLock.BASE_AFFINITY, Affinity.getAffinity());
 
-        assertEquals(AffinityLock.BASE_AFFINITY, AffinitySupport.getAffinity());
+        assertEquals(AffinityLock.BASE_AFFINITY, Affinity.getAffinity());
         AffinityLock al2 = AffinityLock.acquireCore();
-        assertEquals(1, Long.bitCount(AffinitySupport.getAffinity()));
+        assertEquals(1, Affinity.getAffinity().cardinality());
         al2.release();
-        assertEquals(AffinityLock.BASE_AFFINITY, AffinitySupport.getAffinity());
+        assertEquals(AffinityLock.BASE_AFFINITY, Affinity.getAffinity());
     }
 
     @Test
@@ -151,12 +153,15 @@ public class AffinityLockTest {
         if (Runtime.getRuntime().availableProcessors() > 2) {
             AffinityLock alForAnotherThread2 = al.acquireLock(AffinityStrategies.ANY);
             assertNotSame(alForAnotherThread, alForAnotherThread2);
-            assertNotSame(alForAnotherThread.cpuId(), alForAnotherThread2.cpuId());
+            if (alForAnotherThread.cpuId() != -1)
+                assertNotSame(alForAnotherThread.cpuId(), alForAnotherThread2.cpuId());
 
             alForAnotherThread2.release();
+
         } else {
             assertNotSame(alForAnotherThread, al);
-            assertNotSame(alForAnotherThread.cpuId(), al.cpuId());
+            if (alForAnotherThread.cpuId() != -1)
+                assertNotSame(alForAnotherThread.cpuId(), al.cpuId());
         }
         alForAnotherThread.release();
         al.release();
@@ -164,6 +169,8 @@ public class AffinityLockTest {
 
     @Test
     public void testIssue19() {
+        System.out.println("AffinityLock.PROCESSORS=" + AffinityLock.PROCESSORS);
+
         AffinityLock al = AffinityLock.acquireLock();
         List<AffinityLock> locks = new ArrayList<AffinityLock>();
         locks.add(al);
@@ -179,35 +186,39 @@ public class AffinityLockTest {
 
     @Test
     public void testGettid() {
-        System.out.println("cpu= " + AffinitySupport.getCpu());
+        System.out.println("cpu= " + Affinity.getCpu());
     }
 
     @Test
     public void testAffinity() throws InterruptedException {
-        System.out.println("Started");
+        // System.out.println("Started");
+        logger.info("Started");
         displayStatus();
-        final AffinityLock al = acquireLock();
-        System.out.println("Main locked");
-        displayStatus();
-        Thread t = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                AffinityLock al2 = al.acquireLock(AffinityStrategies.ANY);
-                System.out.println("Thread-0 locked");
-                displayStatus();
-                al2.release();
-            }
-        });
-        t.start();
-        t.join();
-        System.out.println("Thread-0 unlocked");
-        displayStatus();
-        al.release();
+        final AffinityLock al = AffinityLock.acquireLock();
+        try {
+            System.out.println("Main locked");
+            displayStatus();
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    AffinityLock al2 = al.acquireLock(AffinityStrategies.SAME_SOCKET, AffinityStrategies.ANY);
+                    System.out.println("Thread-0 locked");
+                    displayStatus();
+                    al2.release();
+                }
+            });
+            t.start();
+            t.join();
+            System.out.println("Thread-0 unlocked");
+            displayStatus();
+        } finally {
+            al.close();
+        }
         System.out.println("All unlocked");
         displayStatus();
     }
 
     private void displayStatus() {
-        System.out.println(Thread.currentThread() + " on " + AffinitySupport.getCpu() + "\n" + AffinityLock.dumpLocks());
+        System.out.println(Thread.currentThread() + " on " + Affinity.getCpu() + "\n" + AffinityLock.dumpLocks());
     }
 }

@@ -1,19 +1,18 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package net.openhft.affinity.impl;
@@ -29,6 +28,8 @@ import net.openhft.affinity.IAffinity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.BitSet;
+
 /**
  * Implementation of {@link net.openhft.affinity.IAffinity} based on JNA call of
  * sched_SetThreadAffinityMask/GetProcessAffinityMask from Windows 'kernel32' library. Applicable for
@@ -42,34 +43,63 @@ public enum WindowsJNAAffinity implements IAffinity {
     public static final boolean LOADED;
     private static final Logger LOGGER = LoggerFactory.getLogger(WindowsJNAAffinity.class);
 
+    static {
+        boolean loaded = false;
+        try {
+            INSTANCE.getAffinity();
+            loaded = true;
+        } catch (UnsatisfiedLinkError e) {
+            LOGGER.warn("Unable to load jna library", e);
+        }
+        LOADED = loaded;
+    }
+
+    private final ThreadLocal<Integer> THREAD_ID = new ThreadLocal<>();
+
     @Override
-    public long getAffinity() {
+    public BitSet getAffinity() {
         final CLibrary lib = CLibrary.INSTANCE;
         final LongByReference cpuset1 = new LongByReference(0);
         final LongByReference cpuset2 = new LongByReference(0);
         try {
 
             final int ret = lib.GetProcessAffinityMask(-1, cpuset1, cpuset2);
-            if (ret < 0)
+            // Successful result is positive, according to the docs
+            // https://msdn.microsoft.com/en-us/library/windows/desktop/ms683213%28v=vs.85%29.aspx
+            if (ret <= 0) {
                 throw new IllegalStateException("GetProcessAffinityMask(( -1 ), &(" + cpuset1 + "), &(" + cpuset2 + ") ) return " + ret);
+            }
 
-            return cpuset1.getValue();
-
+            long[] longs = new long[1];
+            longs[0] = cpuset1.getValue();
+            return BitSet.valueOf(longs);
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.error(e.getMessage(), e);
         }
-        return 0;
+
+        return new BitSet();
     }
 
     @Override
-    public void setAffinity(final long affinity) {
+    public void setAffinity(final BitSet affinity) {
         final CLibrary lib = CLibrary.INSTANCE;
 
-        WinDef.DWORD aff = new WinDef.DWORD(affinity);
+        WinDef.DWORD aff;
+        long[] longs = affinity.toLongArray();
+        switch (longs.length) {
+            case 0:
+                aff = new WinDef.DWORD(0);
+                break;
+            case 1:
+                aff = new WinDef.DWORD(longs[0]);
+                break;
+            default:
+                throw new IllegalArgumentException("Windows API does not support more than 64 CPUs for thread affinity");
+        }
+
         int pid = getTid();
         try {
             lib.SetThreadAffinityMask(pid, aff);
-
         } catch (LastErrorException e) {
             throw new IllegalStateException("SetThreadAffinityMask((" + pid + ") , &(" + affinity + ") ) errorNo=" + e.getErrorCode(), e);
         }
@@ -80,12 +110,10 @@ public enum WindowsJNAAffinity implements IAffinity {
 
         try {
             return lib.GetCurrentThread();
-
         } catch (LastErrorException e) {
             throw new IllegalStateException("GetCurrentThread( ) errorNo=" + e.getErrorCode(), e);
         }
     }
-
 
     @Override
     public int getCpu() {
@@ -99,9 +127,11 @@ public enum WindowsJNAAffinity implements IAffinity {
 
     @Override
     public int getThreadId() {
-        return Kernel32.INSTANCE.GetCurrentThreadId();
+        Integer tid = THREAD_ID.get();
+        if (tid == null)
+            THREAD_ID.set(tid = Kernel32.INSTANCE.GetCurrentThreadId());
+        return tid;
     }
-
 
     /**
      * @author BegemoT
@@ -114,16 +144,5 @@ public enum WindowsJNAAffinity implements IAffinity {
         void SetThreadAffinityMask(final int pid, final WinDef.DWORD lpProcessAffinityMask) throws LastErrorException;
 
         int GetCurrentThread() throws LastErrorException;
-    }
-
-    static {
-        boolean loaded = false;
-        try {
-            INSTANCE.getAffinity();
-            loaded = true;
-        } catch (UnsatisfiedLinkError e) {
-            LOGGER.warn("Unable to load jna library", e);
-        }
-        LOADED = loaded;
     }
 }

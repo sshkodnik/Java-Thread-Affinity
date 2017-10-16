@@ -1,23 +1,21 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package net.openhft.affinity.impl;
-
 
 import com.sun.jna.LastErrorException;
 import com.sun.jna.Library;
@@ -27,24 +25,27 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.management.ManagementFactory;
+import java.util.BitSet;
 
 /**
  * This is essentially the same as the NullAffinity implementation but with concrete
  * support for getThreadId().
+ *
  * @author daniel.shaya
  */
 public enum OSXJNAAffinity implements IAffinity {
     INSTANCE;
     private static final Logger LOGGER = LoggerFactory.getLogger(OSXJNAAffinity.class);
+    private final ThreadLocal<Integer> THREAD_ID = new ThreadLocal<>();
 
     @Override
-    public long getAffinity() {
-        return -1;
+    public BitSet getAffinity() {
+        return new BitSet();
     }
 
     @Override
-    public void setAffinity(final long affinity) {
-        LOGGER.trace("unable to set mask to {} as the JNIa nd JNA libraries and not loaded", Long.toHexString(affinity));
+    public void setAffinity(final BitSet affinity) {
+        LOGGER.trace("unable to set mask to {} as the JNIa nd JNA libraries and not loaded", Utilities.toHexString(affinity));
     }
 
     @Override
@@ -60,10 +61,14 @@ public enum OSXJNAAffinity implements IAffinity {
 
     @Override
     public int getThreadId() {
-        int tid = CLibrary.INSTANCE.pthread_self();
-        //The tid assumed to be an unsigned 24 bit, see net.openhft.lang.Jvm.getMaxPid()
-        int tid_24 = tid & 0xFFFFFF;
-        return tid_24;
+        Integer tid = THREAD_ID.get();
+        if (tid == null) {
+            tid = CLibrary.INSTANCE.pthread_self();
+            //The tid assumed to be an unsigned 24 bit, see net.openhft.lang.Jvm.getMaxPid()
+            tid = tid & 0xFFFFFF;
+            THREAD_ID.set(tid);
+        }
+        return tid;
     }
 
     interface CLibrary extends Library {
@@ -71,6 +76,5 @@ public enum OSXJNAAffinity implements IAffinity {
                 Native.loadLibrary("libpthread.dylib", CLibrary.class);
 
         int pthread_self() throws LastErrorException;
-
     }
 }

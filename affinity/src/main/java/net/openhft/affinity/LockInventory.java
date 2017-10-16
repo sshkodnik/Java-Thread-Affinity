@@ -1,19 +1,18 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package net.openhft.affinity;
@@ -28,22 +27,30 @@ import java.util.TreeMap;
 class LockInventory {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LockInventory.class);
-
-    private CpuLayout cpuLayout;
-
-    /**
-     * The lock belonging to each logical core. 1-to-1 relationship
-     */
-    private AffinityLock[] logicalCoreLocks;
-
     /**
      * The locks belonging to physical cores. Since a physical core can host multiple logical cores
      * the relationship is one to many.
      */
     private final NavigableMap<Integer, AffinityLock[]> physicalCoreLocks = new TreeMap<Integer, AffinityLock[]>();
+    private CpuLayout cpuLayout;
+    /**
+     * The lock belonging to each logical core. 1-to-1 relationship
+     */
+    private AffinityLock[] logicalCoreLocks;
 
     public LockInventory(CpuLayout cpuLayout) {
         set(cpuLayout);
+    }
+
+    public static String dumpLocks(@NotNull AffinityLock[] locks) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < locks.length; i++) {
+            AffinityLock al = locks[i];
+            sb.append(i).append(": ");
+            sb.append(al.toString());
+            sb.append('\n');
+        }
+        return sb.toString();
     }
 
     public final synchronized CpuLayout getCpuLayout() {
@@ -56,8 +63,8 @@ class LockInventory {
         }
         reset(cpuLayout);
         for (int i = 0; i < cpuLayout.cpus(); i++) {
-            boolean base = ((AffinityLock.BASE_AFFINITY >> i) & 1) != 0;
-            boolean reservable = ((AffinityLock.RESERVED_AFFINITY >> i) & 1) != 0;
+            final boolean base = AffinityLock.BASE_AFFINITY.get(i);
+            final boolean reservable = AffinityLock.RESERVED_AFFINITY.get(i);
 
             LOGGER.trace("cpu " + i + " base={} reservable= {}", i, base, reservable);
             AffinityLock lock = logicalCoreLocks[i] = newLock(i, base, reservable);
@@ -73,6 +80,8 @@ class LockInventory {
     }
 
     public final synchronized AffinityLock acquireLock(boolean bind, int cpuId, AffinityStrategy... strategies) {
+
+
         for (AffinityStrategy strategy : strategies) {
             // consider all processors except cpu 0 which is usually used by the OS.
             // if you have only one core, this library is not appropriate in any case.
@@ -80,6 +89,7 @@ class LockInventory {
                 AffinityLock al = logicalCoreLocks[i];
                 if (al.canReserve() && (cpuId < 0 || strategy.matches(cpuId, al.cpuId()))) {
                     al.assignCurrentThread(bind, false);
+                    LockCheck.updateCpu(al.cpuId());
                     return al;
                 }
             }
@@ -100,6 +110,7 @@ class LockInventory {
 
                 final AffinityLock al = als[0];
                 al.assignCurrentThread(bind, true);
+                LockCheck.updateCpu(al.cpuId());
                 return al;
             }
         }
@@ -119,6 +130,7 @@ class LockInventory {
         for (AffinityLock al : physicalCoreLocks.get(core)) {
             if (al.isBound() && al.assignedThread != null && al.assignedThread.isAlive()) {
                 LOGGER.warn("cpu {} already bound to {}", al.cpuId(), al.assignedThread);
+
             } else {
                 al.bound = true;
                 al.assignedThread = Thread.currentThread();
@@ -145,13 +157,16 @@ class LockInventory {
                 LOGGER.info("Releasing cpu {} from {}", al.cpuId(), t);
                 al.assignedThread = null;
                 al.bound = false;
+                al.boundHere = null;
+
             } else if (at != null && !at.isAlive()) {
                 LOGGER.warn("Releasing cpu {} from {} as it is not alive.", al.cpuId(), t);
                 al.assignedThread = null;
                 al.bound = false;
+                al.boundHere = null;
             }
         }
-        AffinitySupport.setAffinity(AffinityLock.BASE_AFFINITY);
+        Affinity.resetToBaseAffinity();
     }
 
     public final synchronized String dumpLocks() {
@@ -170,16 +185,5 @@ class LockInventory {
 
     private int toPhysicalCore(int layoutId) {
         return cpuLayout.socketId(layoutId) * cpuLayout.coresPerSocket() + cpuLayout.coreId(layoutId);
-    }
-
-    public static String dumpLocks(@NotNull AffinityLock[] locks) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < locks.length; i++) {
-            AffinityLock al = locks[i];
-            sb.append(i).append(": ");
-            sb.append(al.toString());
-            sb.append('\n');
-        }
-        return sb.toString();
     }
 }

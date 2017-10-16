@@ -1,19 +1,18 @@
 /*
- * Copyright 2014 Higher Frequency Trading
+ * Copyright 2016 higherfrequencytrading.com
  *
- * http://www.higherfrequencytrading.com
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- * http://www.apache.org/licenses/LICENSE-2.0
+ *       http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  */
 
 package org.junit;
@@ -130,10 +129,12 @@ public class Assert {
                                     Object actual) {
         if (equalsRegardingNull(expected, actual)) {
             return;
+
         } else if (expected instanceof String && actual instanceof String) {
             String cleanMessage = message == null ? "" : message;
             throw new ComparisonFailure(cleanMessage, (String) expected,
                     (String) actual);
+
         } else {
             failNotEquals(message, expected, actual);
         }
@@ -544,11 +545,8 @@ public class Assert {
         if (Double.compare(d1, d2) == 0) {
             return false;
         }
-        if ((Math.abs(d1 - d2) <= delta)) {
-            return false;
-        }
+        return (Math.abs(d1 - d2) > delta);
 
-        return true;
     }
 
     /**
@@ -625,7 +623,6 @@ public class Assert {
      *                 <code>actual</code> for which both numbers are still
      *                 considered equal.
      */
-
     static public void assertEquals(float expected, float actual, float delta) {
         assertEquals(null, expected, actual, delta);
     }
@@ -775,6 +772,7 @@ public class Assert {
             return formatted + "expected: "
                     + formatClassAndValue(expected, expectedString)
                     + " but was: " + formatClassAndValue(actual, actualString);
+
         } else {
             return formatted + "expected:<" + expectedString + "> but was:<"
                     + actualString + ">";
